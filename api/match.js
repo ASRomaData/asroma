@@ -6,40 +6,32 @@ export default async function handler(req, res) {
     "Accept": "application/json",
   };
 
-  async function getJSON(url) {
-    try {
-      const r = await fetch(url, { headers });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch {
-      return null;
-    }
-  }
-
   async function findLastMatch() {
+    const TEAM_ID = 3062;
     const today = new Date();
-
-    for (let i = 0; i < 10; i++) {
+  
+    for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-
+  
       const dateStr = d.toISOString().split("T")[0];
       const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${dateStr}`;
-
+  
       const data = await getJSON(url);
       if (!data) continue;
-
+  
       for (const event of data.events || []) {
-        const home = event.homeTeam?.name?.toLowerCase() || "";
-        const away = event.awayTeam?.name?.toLowerCase() || "";
-
-        if (home.includes(TEAM_NAME) || away.includes(TEAM_NAME)) {
+        const homeId = event.homeTeam?.id;
+        const awayId = event.awayTeam?.id;
+  
+        if (homeId === TEAM_ID || awayId === TEAM_ID) {
           if (event.status?.type === "finished") {
             return event;
           }
         }
       }
     }
+  
     return null;
   }
 
