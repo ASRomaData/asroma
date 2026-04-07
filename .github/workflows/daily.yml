@@ -1,0 +1,14 @@
+name: Daily Roma Stats
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call API
+        run: |
+          curl https://asroma.vercel.app/api/match
