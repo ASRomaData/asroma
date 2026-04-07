@@ -1,29 +1,44 @@
 export default async function handler(req, res) {
-  const TEAM_NAME = "roma";
 
   const headers = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "application/json",
   };
 
+  // =========================
+  // FETCH HELPER
+  // =========================
+  async function getJSON(url) {
+    try {
+      const r = await fetch(url, { headers });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch {
+      return null;
+    }
+  }
+
+  // =========================
+  // FIND LAST ROMA MATCH (TEAM ID)
+  // =========================
   async function findLastMatch() {
-    const TEAM_ID = 3062;
+    const TEAM_ID = 3062; // AS Roma
     const today = new Date();
-  
+
     for (let i = 0; i < 30; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
-  
+
       const dateStr = d.toISOString().split("T")[0];
       const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${dateStr}`;
-  
+
       const data = await getJSON(url);
       if (!data) continue;
-  
+
       for (const event of data.events || []) {
         const homeId = event.homeTeam?.id;
         const awayId = event.awayTeam?.id;
-  
+
         if (homeId === TEAM_ID || awayId === TEAM_ID) {
           if (event.status?.type === "finished") {
             return event;
@@ -31,10 +46,13 @@ export default async function handler(req, res) {
         }
       }
     }
-  
+
     return null;
   }
 
+  // =========================
+  // GET MATCH STATS
+  // =========================
   async function getStats(eventId) {
     const url = `https://api.sofascore.com/api/v1/event/${eventId}/statistics`;
     const data = await getJSON(url);
@@ -58,6 +76,9 @@ export default async function handler(req, res) {
     return map;
   }
 
+  // =========================
+  // FORMAT RESPONSE
+  // =========================
   function format(event, stats) {
     const home = event.homeTeam.name;
     const away = event.awayTeam.name;
@@ -77,6 +98,9 @@ export default async function handler(req, res) {
     };
   }
 
+  // =========================
+  // MAIN
+  // =========================
   try {
     const match = await findLastMatch();
 
