@@ -22,33 +22,23 @@ export default async function handler(req, res) {
   // FIND LAST ROMA MATCH (TEAM ID)
   // =========================
   async function findLastMatch() {
-    const TEAM_ID = 3062; // AS Roma
-    const today = new Date();
+  const TEAM_ID = 3062;
 
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
+  // endpoint molto più affidabile
+  const url = `https://api.sofascore.com/api/v1/team/${TEAM_ID}/events/last/0`;
 
-      const dateStr = d.toISOString().split("T")[0];
-      const url = `https://api.sofascore.com/api/v1/sport/football/scheduled-events/${dateStr}`;
+  const data = await getJSON(url);
+  if (!data || !data.events) return null;
 
-      const data = await getJSON(url);
-      if (!data) continue;
-
-      for (const event of data.events || []) {
-        const homeId = event.homeTeam?.id;
-        const awayId = event.awayTeam?.id;
-
-        if (homeId === TEAM_ID || awayId === TEAM_ID) {
-          if (event.status?.type === "finished") {
-            return event;
-          }
-        }
-      }
+  // trova la prima partita finita
+  for (const event of data.events) {
+    if (event.status?.type === "finished") {
+      return event;
     }
-
-    return null;
   }
+
+  return null;
+}
 
   // =========================
   // GET MATCH STATS
