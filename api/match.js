@@ -1,109 +1,90 @@
-export default async function handler(req, res) {
+const TEAM_ID = Number(process.env.SOFASCORE_TEAM_ID || 2702);
+const API = "https://www.sofascore.com/api/v1";
 
-  const headers = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json",
+async function getJSON(url) {
+  const r = await fetch(url, { headers: { "User-Agent": "ASRomaData/1.0", Accept: "application/json" } });
+  if (!r.ok) throw new Error("SofaScore HTTP " + r.status);
+  return r.json();
+}
+
+function firstStat(stats, names) {
+  for (const name of names) if (stats[name]) return stats[name];
+  return null;
+}
+function num(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(String(v).replace("%", "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+function pct(v) { const n = num(v); return n === null ? null : Math.round(n * 10) / 10; }
+function dec(v) { const n = num(v); return n === null ? null : Math.round(n * 100) / 100; }
+function pair(stat, fn) {
+  fn = fn || (v => v);
+  return { home: stat?.home == null ? null : fn(stat.home), away: stat?.away == null ? null : fn(stat.away) };
+}
+
+export function normalizeStats(raw) {
+  const map = {};
+  for (const period of raw?.statistics || []) {
+    if (period.period !== "ALL") continue;
+    for (const group of period.groups || []) {
+      for (const item of group.statisticsItems || []) map[item.name] = { home: item.home, away: item.away };
+    }
+  }
+  const shots = firstStat(map, ["Total shots", "Total Shots"]);
+  const onTarget = firstStat(map, ["Shots on target", "Shots on goal", "Shots On Target"]);
+  const xg = firstStat(map, ["Expected goals", "xG"]);
+  const xgot = firstStat(map, ["Expected goals on target", "Expected goals on Target", "xGOT"]);
+  const possession = firstStat(map, ["Ball possession", "Possession"]);
+  let accuracy = firstStat(map, ["Accurate passes percentage", "Accurate passes %", "Passes accuracy"]);
+  const accurate = firstStat(map, ["Accurate passes"]);
+  const total = firstStat(map, ["Total passes"]);
+  if (!accuracy && accurate && total) {
+    accuracy = {
+      home: num(total.home) ? num(accurate.home) / num(total.home) * 100 : null,
+      away: num(total.away) ? num(accurate.away) / num(total.away) * 100 : null
+    };
+  }
+  const big = firstStat(map, ["Big chances", "Big Chances"]);
+  return {
+    shots: pair(shots, num),
+    onTarget: pair(onTarget, num),
+    xg: pair(xg, dec),
+    xgot: pair(xgot, dec),
+    possession: pair(possession, pct),
+    passAccuracy: pair(accuracy, pct),
+    bigChances: pair(big, num)
   };
+}
 
-  // =========================
-  // FETCH HELPER
-  // =========================
-  async function getJSON(url) {
-    try {
-      const r = await fetch(url, { headers });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch {
-      return null;
-    }
+async function findLastFinishedMatch() {
+  for (let page = 0; page < 3; page++) {
+    const data = await getJSON(API + "/team/" + TEAM_ID + "/events/last/" + page);
+    for (const event of data.events || []) if (event.status?.type === "finished") return event;
   }
-
-  // =========================
-  // FIND LAST ROMA MATCH (TEAM ID)
-  // =========================
-  async function findLastMatch() {
-  const TEAM_ID = 3062;
-
-  // endpoint molto più affidabile
-  const url = `https://api.sofascore.com/api/v1/team/${TEAM_ID}/events/last/0`;
-
-  const data = await getJSON(url);
-  if (!data || !data.events) return null;
-
-  // trova la prima partita finita
-  for (const event of data.events) {
-    if (event.status?.type === "finished") {
-      return event;
-    }
-  }
-
   return null;
 }
 
-  // =========================
-  // GET MATCH STATS
-  // =========================
-  async function getStats(eventId) {
-    const url = `https://api.sofascore.com/api/v1/event/${eventId}/statistics`;
-    const data = await getJSON(url);
+export async function getLatestMatch() {
+  const event = await findLastFinishedMatch();
+  if (!event) throw new Error("Nessuna partita finita trovata.");
+  const raw = await getJSON(API + "/event/" + event.id + "/statistics");
+  return {
+    id: event.id,
+    homeTeam: event.homeTeam?.name || "Home",
+    awayTeam: event.awayTeam?.name || "Away",
+    homeScore: event.homeScore?.display ?? event.homeScore?.current ?? 0,
+    awayScore: event.awayScore?.display ?? event.awayScore?.current ?? 0,
+    startTimestamp: event.startTimestamp,
+    stats: normalizeStats(raw)
+  };
+}
 
-    if (!data) return {};
-
-    const all = data.statistics?.find(p => p.period === "ALL");
-    const map = {};
-
-    if (all) {
-      for (const group of all.groups) {
-        for (const item of group.statisticsItems) {
-          map[item.name] = {
-            home: item.home,
-            away: item.away,
-          };
-        }
-      }
-    }
-
-    return map;
-  }
-
-  // =========================
-  // FORMAT RESPONSE
-  // =========================
-  function format(event, stats) {
-    const home = event.homeTeam.name;
-    const away = event.awayTeam.name;
-
-    const hScore = event.homeScore?.display ?? 0;
-    const aScore = event.awayScore?.display ?? 0;
-
-    const s = (n) => stats[n] || { home: "-", away: "-" };
-
-    return {
-      match: `${home} ${hScore}-${aScore} ${away}`,
-      shots: `${s("Total shots").home} - ${s("Total shots").away}`,
-      onTarget: `${s("Shots on target").home} - ${s("Shots on target").away}`,
-      xg: `${s("Expected goals").home} - ${s("Expected goals").away}`,
-      possession: `${s("Ball possession").home} - ${s("Ball possession").away}`,
-      passes: `${s("Accurate passes").home} - ${s("Accurate passes").away}`,
-    };
-  }
-
-  // =========================
-  // MAIN
-  // =========================
+export default async function handler(req, res) {
   try {
-    const match = await findLastMatch();
-
-    if (!match) {
-      return res.status(404).json({ error: "No match found" });
-    }
-
-    const stats = await getStats(match.id);
-    const formatted = format(match, stats);
-
-    res.status(200).json(formatted);
-
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).json(await getLatestMatch());
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(502).json({ error: err.message || "Errore SofaScore" });
   }
 }
