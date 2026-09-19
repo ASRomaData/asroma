@@ -23,3 +23,16 @@ export function normalizeStats(raw) {
   const big=pick(["Big chances","Big Chances"]);
   return {shots:pair(shots,num),onTarget:pair(target,num),xg:pair(xg,dec),xgot:pair(xgot,dec),possession:pair(possession,pct),passAccuracy:pair(pass,pct),bigChances:pair(big,num)};
 }
+
+
+const TEAM_ID = Number(process.env.SOFASCORE_TEAM_ID || 2702);
+const API = "https://www.sofascore.com/api/v1";
+async function getJSON(url){const r=await fetch(url,{headers:{"User-Agent":"ASRomaData/1.0",Accept:"application/json"}});if(!r.ok)throw new Error("SofaScore HTTP "+r.status);return r.json();}
+export async function getLatestMatch(){
+  let event=null;
+  for(let page=0;page<3&&!event;page++){const d=await getJSON(API+"/team/"+TEAM_ID+"/events/last/"+page);event=(d.events||[]).find(e=>e.status?.type==="finished");}
+  if(!event)throw new Error("Nessuna partita finita trovata.");
+  const raw=await getJSON(API+"/event/"+event.id+"/statistics");
+  return {id:event.id,homeTeam:event.homeTeam?.name||"Home",awayTeam:event.awayTeam?.name||"Away",homeScore:event.homeScore?.display??event.homeScore?.current??0,awayScore:event.awayScore?.display??event.awayScore?.current??0,startTimestamp:event.startTimestamp,stats:normalizeStats(raw)};
+}
+export default async function handler(req,res){try{res.setHeader("Cache-Control","no-store");return res.status(200).json(await getLatestMatch());}catch(e){return res.status(502).json({error:e.message||"Errore SofaScore"});}}
